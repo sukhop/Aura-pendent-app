@@ -1,8 +1,0 @@
-uploads = []
-outputs = []
-
-[[generated]]
-id = "RDpa0pAkBnm2SYEJmfDUV"
-uri = "file://artifacts/aura-pendant/assets/images/icon.png"
-type = "image"
-title = "aura pendant app icon"
