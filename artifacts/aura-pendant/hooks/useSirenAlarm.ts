@@ -1,49 +1,58 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Platform, Vibration } from "react-native";
-import { Audio } from "expo-av"; // ← STATIC import (dynamic import breaks Metro)
+import { Audio } from "expo-av";
 
-// Local WAV file — no CDN, no network dependency
 const ALARM_ASSET = require("../assets/sounds/alarm.wav");
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Web Audio API siren (web only)
-// ─────────────────────────────────────────────────────────────────────────────
 function createWebSiren(): { stop: () => void } | null {
   if (Platform.OS !== "web") return null;
+
   try {
-    const AC =
-      (window as any).AudioContext ?? (window as any).webkitAudioContext;
-    if (!AC) return null;
+    const audioWindow = window as unknown as {
+      AudioContext?: typeof AudioContext;
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const AudioContextCtor =
+      audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
 
-    const ctx = new AC() as AudioContext;
-    // Resume in case context was suspended (browser autoplay policy)
-    ctx.resume().catch(() => {});
+    if (!AudioContextCtor) return null;
 
-    const osc = ctx.createOscillator();
+    const ctx = new AudioContextCtor();
+    ctx.resume().catch(() => undefined);
+
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    gain.gain.value = 0.75;
-    osc.frequency.value = 660;
-    osc.start();
+    osc1.type = "square";
+    osc2.type = "sawtooth";
+    gain.gain.value = 0.6;
 
-    // Sweep 660 → 880 → 660 Hz
-    let up = true;
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc1.frequency.value = 660;
+    osc2.frequency.value = 667;
+    osc1.start();
+    osc2.start();
+
+    let sweepUp = true;
     const sweep = () => {
-      if (!osc) return;
       const now = ctx.currentTime;
-      osc.frequency.cancelScheduledValues(now);
-      if (up) {
-        osc.frequency.setValueAtTime(660, now);
-        osc.frequency.linearRampToValueAtTime(880, now + 0.45);
-      } else {
-        osc.frequency.setValueAtTime(880, now);
-        osc.frequency.linearRampToValueAtTime(660, now + 0.45);
-      }
-      up = !up;
+      const from = sweepUp ? 660 : 900;
+      const to = sweepUp ? 900 : 660;
+
+      osc1.frequency.cancelScheduledValues(now);
+      osc2.frequency.cancelScheduledValues(now);
+      osc1.frequency.setValueAtTime(from, now);
+      osc1.frequency.linearRampToValueAtTime(to, now + 0.45);
+      osc2.frequency.setValueAtTime(from + 7, now);
+      osc2.frequency.linearRampToValueAtTime(to + 7, now + 0.45);
+
+      sweepUp = !sweepUp;
     };
+
     sweep();
     const timer = setInterval(sweep, 450);
 
@@ -51,9 +60,12 @@ function createWebSiren(): { stop: () => void } | null {
       stop: () => {
         clearInterval(timer);
         try {
-          osc.stop();
+          osc1.stop();
         } catch {}
-        ctx.close().catch(() => {});
+        try {
+          osc2.stop();
+        } catch {}
+        ctx.close().catch(() => undefined);
       },
     };
   } catch {
@@ -61,24 +73,18 @@ function createWebSiren(): { stop: () => void } | null {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Hook
-// ─────────────────────────────────────────────────────────────────────────────
-export function useSirenAlarm(active: boolean) {
+export function useSirenAlarm(active: boolean, muted = false) {
   const soundRef = useRef<Audio.Sound | null>(null);
-  const webSirenRef = useRef<{ stop: () => void } | null>(null);
+  const webRef = useRef<{ stop: () => void } | null>(null);
 
   const stopAlarm = useCallback(async () => {
-    // Stop vibration
     Vibration.cancel();
 
-    // Stop web siren
-    if (webSirenRef.current) {
-      webSirenRef.current.stop();
-      webSirenRef.current = null;
+    if (webRef.current) {
+      webRef.current.stop();
+      webRef.current = null;
     }
 
-    // Stop native sound
     if (soundRef.current) {
       try {
         await soundRef.current.stopAsync();
@@ -89,42 +95,46 @@ export function useSirenAlarm(active: boolean) {
   }, []);
 
   const startAlarm = useCallback(async () => {
-    // ── Vibration (all platforms) ─────────────────────────────────────────────
-    Vibration.vibrate([0, 300, 120, 300, 120, 600, 200], true);
+    await stopAlarm();
+    Vibration.vibrate([0, 300, 100, 300, 100, 600, 150], true);
 
     if (Platform.OS === "web") {
-      // ── Web: Web Audio API oscillator ───────────────────────────────────────
-      webSirenRef.current = createWebSiren();
-    } else {
-      // ── Native: expo-av with local WAV (no CDN required) ───────────────────
-      try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true, // override iPhone silent switch
-          staysActiveInBackground: false,
-          shouldDuckAndroid: false,
-        });
-
-        const { sound } = await Audio.Sound.createAsync(ALARM_ASSET, {
-          isLooping: true,
-          volume: 1.0,
-        });
-        soundRef.current = sound;
-        await sound.playAsync();
-      } catch (e) {
-        console.warn("[useSirenAlarm] expo-av failed:", e);
-        // Vibration already running — that's the fallback
-      }
+      webRef.current = createWebSiren();
+      return;
     }
-  }, []);
+
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
+      const { sound } = await Audio.Sound.createAsync(ALARM_ASSET, {
+        isLooping: true,
+        shouldPlay: true,
+        isMuted: false,
+        volume: 1,
+      });
+
+      soundRef.current = sound;
+      await sound.playAsync().catch(() => undefined);
+    } catch (error) {
+      console.warn("[useSirenAlarm] audio failed, vibration only:", error);
+    }
+  }, [stopAlarm]);
 
   useEffect(() => {
-    if (active) {
-      startAlarm();
+    if (active && !muted) {
+      void startAlarm();
     } else {
-      stopAlarm();
+      void stopAlarm();
     }
+
     return () => {
-      stopAlarm();
+      void stopAlarm();
     };
-  }, [active]);
+  }, [active, muted, startAlarm, stopAlarm]);
 }

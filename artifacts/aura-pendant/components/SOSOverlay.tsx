@@ -1,27 +1,59 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  Alert,
   Vibration,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAppStore } from "@/store/appStore";
 import { useSirenAlarm } from "@/hooks/useSirenAlarm";
+import { useAppStore } from "@/store/appStore";
+
+type Coordinates = { lat: number; lng: number } | null;
+
+function getSosApiUrl() {
+  const configuredBaseUrl = process.env.EXPO_PUBLIC_SOS_API_URL?.trim();
+  const baseUrl = configuredBaseUrl
+    ? configuredBaseUrl.replace(/\/$/, "")
+    : Platform.OS === "android"
+    ? "http://10.0.2.2:3001"
+    : "http://localhost:3001";
+
+  return `${baseUrl}/api/sos/notify`;
+}
+
+type PushContact = {
+  name: string;
+  pushToken: string;
+};
 
 export function SOSOverlay() {
-  const { sosActive, cancelSOS, contacts, sosLocation } = useAppStore();
+  const {
+    sosActive,
+    sosMuted,
+    cancelSOS,
+    contacts,
+    sosLocation,
+    profile,
+    privacySettings,
+    alertBehavior,
+    setSOSMuted,
+    setSOSLocation,
+  } = useAppStore();
   const insets = useSafeAreaInsets();
 
-  // 🔊 Start/stop siren alarm whenever SOS is active
-  useSirenAlarm(sosActive);
-  const [sirenMuted, setSirenMuted] = useState(false);
+  useSirenAlarm(sosActive, sosMuted);
+
+  const [deliveryStatus, setDeliveryStatus] = useState<"idle" | "sending" | "sent" | "failed">("idle");
+  const [deliveryMessage, setDeliveryMessage] = useState("");
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -29,117 +61,210 @@ export function SOSOverlay() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const sosContacts = contacts.filter((c) => c.sosEnabled);
+  const sosContacts = contacts.filter((contact) => contact.sosEnabled);
+  const pushContacts: PushContact[] = sosContacts
+    .filter((contact) => !!contact.pushToken)
+    .map((contact) => ({
+      name: contact.name,
+      pushToken: contact.pushToken!,
+    }));
+
+  const resolveCurrentLocation = useCallback(async (): Promise<Coordinates> => {
+    if (!privacySettings.locationSharing) {
+      setSOSLocation(null);
+      return null;
+    }
+
+    if (Platform.OS === "web") {
+      return sosLocation;
+    }
+
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        setSOSLocation(null);
+        return null;
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const nextLocation = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      };
+
+      setSOSLocation(nextLocation);
+      return nextLocation;
+    } catch (error) {
+      console.warn("[SOS] Failed to resolve device location", error);
+      setSOSLocation(null);
+      return null;
+    }
+  }, [privacySettings.locationSharing, setSOSLocation, sosLocation]);
+
+  const sendSMSAlerts = useCallback(
+    async (location: Coordinates) => {
+      if (sosContacts.length === 0) {
+        setDeliveryStatus("sent");
+        setDeliveryMessage("SOS is active, but no emergency contacts are enabled.");
+        return;
+      }
+
+      if (pushContacts.length === 0) {
+        setDeliveryStatus("failed");
+        setDeliveryMessage(
+          "No free push-alert tokens are saved yet. Ask trusted contacts to install Aura and share their push token."
+        );
+        return;
+      }
+
+      setDeliveryStatus("sending");
+      setDeliveryMessage("Sending free SOS push alerts to your Aura contacts...");
+
+      try {
+        const payload = {
+          contacts: pushContacts,
+          senderName: profile?.name ?? "Someone",
+          lat: location?.lat,
+          lng: location?.lng,
+        };
+
+        const response = await fetch(getSosApiUrl(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(data?.error ?? "Automatic push delivery failed");
+        }
+
+        setDeliveryStatus("sent");
+        setDeliveryMessage(
+          data?.message ??
+            `Free SOS push alerts sent to ${pushContacts.length} contact${pushContacts.length === 1 ? "" : "s"}.`
+        );
+      } catch (error) {
+        console.warn("[SOS] Automatic push delivery failed", error);
+        setDeliveryStatus("failed");
+        setDeliveryMessage(
+          "Free SOS push alerts could not be delivered right now. Make sure the API server is running and your contacts have valid Aura push tokens."
+        );
+      }
+    },
+    [profile?.name, pushContacts, sosContacts.length]
+  );
 
   useEffect(() => {
-    if (sosActive) {
-      setElapsedSeconds(0);
-      Vibration.vibrate([0, 400, 200, 400, 200, 400]);
-
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
-
-      const pulse = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.08,
-            duration: 700,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 700,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulse.start();
-
-      const border = Animated.loop(
-        Animated.sequence([
-          Animated.timing(borderAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: false,
-          }),
-          Animated.timing(borderAnim, {
-            toValue: 0,
-            duration: 800,
-            useNativeDriver: false,
-          }),
-        ])
-      );
-      border.start();
-
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((s) => s + 1);
-      }, 1000);
-
-      return () => {
-        pulse.stop();
-        border.stop();
-        if (timerRef.current) clearInterval(timerRef.current);
-      };
-    } else {
+    if (!sosActive) {
       fadeAnim.setValue(0);
+      setDeliveryMessage("");
       if (timerRef.current) clearInterval(timerRef.current);
+      return;
     }
-  }, [sosActive]);
 
-  const formatElapsed = (s: number) => {
-    const m = Math.floor(s / 60);
-    const sec = s % 60;
-    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    setElapsedSeconds(0);
+    setDeliveryStatus("idle");
+    setDeliveryMessage("");
+    Vibration.vibrate([0, 400, 200, 400, 200, 400]);
+
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.08,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+
+    const border = Animated.loop(
+      Animated.sequence([
+        Animated.timing(borderAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: false,
+        }),
+        Animated.timing(borderAnim, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: false,
+        }),
+      ])
+    );
+    border.start();
+
+    timerRef.current = setInterval(() => {
+      setElapsedSeconds((seconds) => seconds + 1);
+    }, 1000);
+
+    let cancelled = false;
+
+    const activateSOS = async () => {
+      const location = await resolveCurrentLocation();
+      if (!cancelled) {
+        await sendSMSAlerts(location);
+      }
+    };
+
+    void activateSOS();
+
+    return () => {
+      cancelled = true;
+      pulse.stop();
+      border.stop();
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [borderAnim, fadeAnim, pulseAnim, resolveCurrentLocation, sendSMSAlerts, sosActive]);
+
+  const formatElapsed = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
   };
 
   const handleCancel = () => {
-    Alert.alert(
-      "Cancel SOS",
-      "Are you sure you want to cancel the emergency alert?",
-      [
-        { text: "Keep Active", style: "cancel" },
-        {
-          text: "Cancel SOS",
-          style: "destructive",
-          onPress: () => {
-            cancelSOS();
-          },
+    Alert.alert("Cancel SOS", "Are you sure you want to cancel the emergency alert?", [
+      { text: "Keep Active", style: "cancel" },
+      {
+        text: "Cancel SOS",
+        style: "destructive",
+        onPress: () => {
+          cancelSOS();
+          setDeliveryStatus("idle");
+          setDeliveryMessage("");
         },
-      ]
-    );
+      },
+    ]);
   };
 
   if (!sosActive) return null;
-
-  const bgColor = borderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["rgba(255,59,78,0.95)", "rgba(200,10,30,0.98)"],
-  });
 
   return (
     <Modal visible={sosActive} transparent animationType="none">
       <Animated.View
         style={[styles.overlay, { opacity: fadeAnim, paddingTop: insets.top + 20 }]}
       >
-        {/* Pulsing background glow */}
-        <Animated.View
-          style={[
-            styles.glowBg,
-            { transform: [{ scale: pulseAnim }] },
-          ]}
-        />
+        <Animated.View style={[styles.glowBg, { transform: [{ scale: pulseAnim }] }]} />
 
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* SOS Icon */}
-          <Animated.View
-            style={[styles.sosIconOuter, { transform: [{ scale: pulseAnim }] }]}
-          >
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Animated.View style={[styles.sosIconOuter, { transform: [{ scale: pulseAnim }] }]}>
             <View style={styles.sosIconInner}>
               <Ionicons name="warning" size={52} color="#fff" />
             </View>
@@ -148,31 +273,52 @@ export function SOSOverlay() {
           <Text style={styles.sosTitle}>SOS ACTIVE</Text>
           <Text style={styles.sosDuration}>Active for {formatElapsed(elapsedSeconds)}</Text>
 
-          {/* Mute / active siren indicator */}
           <TouchableOpacity
             style={styles.sirenRow}
-            onPress={() => setSirenMuted((m) => !m)}
+            onPress={() => setSOSMuted(!sosMuted)}
             activeOpacity={0.8}
           >
             <View style={styles.sirenDot} />
             <Ionicons
-              name={sirenMuted ? "volume-mute" : "volume-high"}
+              name={sosMuted ? "volume-mute" : "volume-high"}
               size={16}
               color="rgba(255,255,255,0.9)"
             />
             <Text style={styles.sirenText}>
-              {sirenMuted ? "Alarm muted" : "🔊 Emergency alarm sounding"}
+              {sosMuted ? "Alarm muted" : "Emergency alarm sounding"}
             </Text>
           </TouchableOpacity>
 
-          {/* GPS Location */}
+          {deliveryStatus !== "idle" && (
+            <View style={styles.smsStatusRow}>
+              <Ionicons
+                name={
+                  deliveryStatus === "sending"
+                    ? "hourglass-outline"
+                    : deliveryStatus === "sent"
+                    ? "checkmark-circle"
+                    : "close-circle"
+                }
+                size={16}
+                color={
+                  deliveryStatus === "sent"
+                    ? "#00D68F"
+                    : deliveryStatus === "failed"
+                    ? "#FF8FA3"
+                    : "rgba(255,255,255,0.7)"
+                }
+              />
+              <Text style={styles.smsStatusText}>{deliveryMessage}</Text>
+            </View>
+          )}
+
           {sosLocation && (
             <View style={styles.locationCard}>
               <Ionicons name="location" size={16} color="#FF8FA3" />
               <View style={styles.locationText}>
                 <Text style={styles.locationLabel}>LIVE GPS LOCATION</Text>
                 <Text style={styles.locationCoords}>
-                  {sosLocation.lat.toFixed(5)}°N, {sosLocation.lng.toFixed(5)}°E
+                  {sosLocation.lat.toFixed(5)}, {sosLocation.lng.toFixed(5)}
                 </Text>
               </View>
               <View style={styles.locationLive}>
@@ -182,24 +328,34 @@ export function SOSOverlay() {
             </View>
           )}
 
-          {/* Status */}
           <View style={styles.statusCard}>
             <View style={styles.statusRow}>
               <Ionicons name="checkmark-circle" size={16} color="#00D68F" />
-              <Text style={styles.statusText}>Emergency alert sent to contacts</Text>
+              <Text style={styles.statusText}>Emergency mode is active on this device</Text>
             </View>
             <View style={styles.statusRow}>
-              <Ionicons name="shield-checkmark" size={16} color="#00D68F" />
-              <Text style={styles.statusText}>Location shared with authorities</Text>
+              <Ionicons
+                name={sosLocation ? "location" : "location-outline"}
+                size={16}
+                color={sosLocation ? "#00D68F" : "#FFB800"}
+              />
+              <Text style={styles.statusText}>
+                {sosLocation
+                  ? "Current location attached to the SOS alert"
+                  : "Location unavailable or location sharing is turned off"}
+              </Text>
             </View>
-            <View style={styles.statusRow}>
-              <Ionicons name="camera" size={16} color="#00D68F" />
-              <Text style={styles.statusText}>Live camera stream activated</Text>
-            </View>
+            {alertBehavior.shareLiveCamera && (
+              <View style={styles.statusRow}>
+                <Ionicons name="camera" size={16} color="#00D68F" />
+                <Text style={styles.statusText}>Camera sharing is enabled for SOS</Text>
+              </View>
+            )}
           </View>
 
-          {/* Contacts being alerted */}
-          <Text style={styles.contactsLabel}>ALERTING {sosContacts.length} CONTACTS</Text>
+          <Text style={styles.contactsLabel}>
+            ALERTING {pushContacts.length} OF {sosContacts.length} CONTACTS
+          </Text>
           <View style={styles.contactsRow}>
             {sosContacts.map((contact) => (
               <View key={contact.id} style={styles.contactChip}>
@@ -214,18 +370,13 @@ export function SOSOverlay() {
             ))}
           </View>
 
-          {/* Cancel Button */}
-          <TouchableOpacity
-            style={styles.cancelBtn}
-            onPress={handleCancel}
-            activeOpacity={0.85}
-          >
+          <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel} activeOpacity={0.85}>
             <Ionicons name="close-circle" size={22} color="#FF3B4E" />
             <Text style={styles.cancelText}>Cancel SOS</Text>
           </TouchableOpacity>
 
           <Text style={styles.disclaimer}>
-            Emergency services may be automatically notified depending on your region.
+            Free Aura-to-Aura alerts use Expo push tokens instead of paid SMS.
           </Text>
         </ScrollView>
       </Animated.View>
@@ -238,7 +389,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#B00020",
     paddingHorizontal: 20,
-      paddingBottom: 40,
+    paddingBottom: 40,
   },
   glowBg: {
     position: "absolute",
@@ -334,7 +485,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.15)",
   },
   statusRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  statusText: { color: "#fff", fontSize: 13, fontWeight: "500" },
+  statusText: { color: "#fff", fontSize: 13, fontWeight: "500", flex: 1 },
   contactsLabel: {
     alignSelf: "flex-start",
     fontSize: 11,
@@ -407,5 +558,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "rgba(255,255,255,0.95)",
     fontWeight: "600",
+  },
+  smsStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    width: "100%",
+  },
+  smsStatusText: {
+    flex: 1,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "500",
   },
 });

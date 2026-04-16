@@ -17,6 +17,7 @@ import { Text, TextInput, StyleSheet } from "react-native";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { BiometricLockScreen } from "@/components/BiometricLockScreen";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -57,6 +58,8 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  usePushNotifications();
+
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,

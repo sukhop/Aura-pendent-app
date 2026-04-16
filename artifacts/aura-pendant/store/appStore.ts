@@ -7,9 +7,11 @@ export interface Contact {
   name: string;
   relation: string;
   phone: string;
+  pushToken?: string;
   initials: string;
   avatarColor: string;
   sosEnabled: boolean;
+  notifiedAt?: string;
 }
 
 export interface Alert {
@@ -76,6 +78,7 @@ export interface UserProfile {
   email: string;
   initials: string;
   avatarColor: string;
+  pushToken?: string;
 }
 
 interface AppState {
@@ -88,6 +91,7 @@ interface AppState {
   privacySettings: PrivacySettings;
   alertBehavior: AlertBehavior;
   sosActive: boolean;
+  sosMuted: boolean;
   sosLocation: { lat: number; lng: number } | null;
   profile: UserProfile;
   batteryAlertSent: boolean;
@@ -111,6 +115,8 @@ interface AppState {
   updateProfile: (updates: Partial<UserProfile>) => void;
   triggerSOS: () => void;
   cancelSOS: () => void;
+  setSOSMuted: (muted: boolean) => void;
+  setSOSLocation: (location: { lat: number; lng: number } | null) => void;
   disconnectDevice: () => void;
   setBatteryAlertSent: (val: boolean) => void;
 }
@@ -167,7 +173,7 @@ const defaultAlerts: Alert[] = [
     id: "2",
     type: "Health",
     title: "Heart rate normal",
-    message: "72 BPM — all vitals stable",
+    message: "72 BPM - all vitals stable",
     timestamp: new Date(Date.now() - 1000 * 60 * 50).toISOString(),
     read: true,
   },
@@ -183,7 +189,7 @@ const defaultAlerts: Alert[] = [
     id: "4",
     type: "Device",
     title: "Battery low",
-    message: "Pendant battery at 15% — please charge soon",
+    message: "Pendant battery at 15% - please charge soon",
     timestamp: new Date(Date.now() - 1000 * 60 * 60 * 15).toISOString(),
     read: true,
   },
@@ -191,7 +197,7 @@ const defaultAlerts: Alert[] = [
     id: "5",
     type: "Health",
     title: "Elevated heart rate",
-    message: "Heart rate reached 112 BPM — monitor closely",
+    message: "Heart rate reached 112 BPM - monitor closely",
     timestamp: new Date(Date.now() - 1000 * 60 * 60 * 33).toISOString(),
     read: true,
   },
@@ -283,6 +289,7 @@ export const useAppStore = create<AppState>()(
         dailyCheckin: false,
       },
       sosActive: false,
+      sosMuted: false,
       sosLocation: null,
       profile: {
         name: "John Doe",
@@ -300,41 +307,41 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ contacts: [...state.contacts, contact] })),
       removeContact: (id) =>
         set((state) => ({
-          contacts: state.contacts.filter((c) => c.id !== id),
+          contacts: state.contacts.filter((contact) => contact.id !== id),
         })),
       updateContact: (id, updates) =>
         set((state) => ({
-          contacts: state.contacts.map((c) =>
-            c.id === id ? { ...c, ...updates } : c
+          contacts: state.contacts.map((contact) =>
+            contact.id === id ? { ...contact, ...updates } : contact
           ),
         })),
       addAlert: (alert) =>
         set((state) => ({ alerts: [alert, ...state.alerts] })),
       dismissAlert: (id) =>
         set((state) => ({
-          alerts: state.alerts.filter((a) => a.id !== id),
+          alerts: state.alerts.filter((alert) => alert.id !== id),
         })),
       markAlertRead: (id) =>
         set((state) => ({
-          alerts: state.alerts.map((a) =>
-            a.id === id ? { ...a, read: true } : a
+          alerts: state.alerts.map((alert) =>
+            alert.id === id ? { ...alert, read: true } : alert
           ),
         })),
       markAllAlertsRead: () =>
         set((state) => ({
-          alerts: state.alerts.map((a) => ({ ...a, read: true })),
+          alerts: state.alerts.map((alert) => ({ ...alert, read: true })),
         })),
       addMedia: (item) =>
         set((state) => ({ media: [item, ...state.media] })),
       deleteMedia: (id) =>
         set((state) => ({
-          media: state.media.filter((m) => m.id !== id),
+          media: state.media.filter((item) => item.id !== id),
         })),
       clearAllMedia: () => set({ media: [] }),
       toggleStarMedia: (id) =>
         set((state) => ({
-          media: state.media.map((m) =>
-            m.id === id ? { ...m, starred: !m.starred } : m
+          media: state.media.map((item) =>
+            item.id === id ? { ...item, starred: !item.starred } : item
           ),
         })),
       updateCameraSettings: (updates) =>
@@ -354,21 +361,28 @@ export const useAppStore = create<AppState>()(
           profile: { ...state.profile, ...updates },
         })),
       triggerSOS: () => {
-        // Generate a simulated GPS location near Bangalore
-        const lat = 12.9716 + (Math.random() - 0.5) * 0.05;
-        const lng = 77.5946 + (Math.random() - 0.5) * 0.05;
-        set({ sosActive: true, sosLocation: { lat, lng } });
+        const notifiedAt = new Date().toISOString();
+        set((state) => ({
+          sosActive: true,
+          sosMuted: false,
+          sosLocation: null,
+          contacts: state.contacts.map((contact) =>
+            contact.sosEnabled ? { ...contact, notifiedAt } : contact
+          ),
+        }));
         const state = get();
         state.addAlert({
           id: Date.now().toString(),
           type: "SOS",
-          title: "🔴 SOS Activated",
-          message: `Emergency alert sent to ${state.contacts.filter((c) => c.sosEnabled).length} contacts. GPS shared.`,
+          title: "SOS Activated",
+          message: `Emergency mode activated for ${state.contacts.filter((contact) => contact.sosEnabled).length} contacts.`,
           timestamp: new Date().toISOString(),
           read: false,
         });
       },
-      cancelSOS: () => set({ sosActive: false, sosLocation: null }),
+      cancelSOS: () => set({ sosActive: false, sosMuted: false, sosLocation: null }),
+      setSOSMuted: (muted) => set({ sosMuted: muted }),
+      setSOSLocation: (location) => set({ sosLocation: location }),
       disconnectDevice: () => {
         set((state) => ({
           device: { ...state.device, connected: false },
