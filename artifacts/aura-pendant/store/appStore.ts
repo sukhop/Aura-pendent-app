@@ -155,6 +155,73 @@ const defaultAlerts: Alert[] = [
     timestamp: "Apr 10, 11:55 AM",
     read: true,
   },
+  {
+    id: "3",
+    type: "Camera",
+    title: "Motion detected",
+    message: "Camera triggered by motion at 10:30 AM",
+    timestamp: "Apr 10, 10:30 AM",
+    read: false,
+  },
+  {
+    id: "4",
+    type: "Device",
+    title: "Battery low",
+    message: "Pendant battery at 15% — please charge soon",
+    timestamp: "Apr 9, 8:45 PM",
+    read: true,
+  },
+  {
+    id: "5",
+    type: "Health",
+    title: "Elevated heart rate",
+    message: "Heart rate reached 112 BPM — monitor closely",
+    timestamp: "Apr 9, 3:12 PM",
+    read: true,
+  },
+];
+
+const defaultMedia: MediaItem[] = [
+  {
+    id: "seed-1",
+    type: "photo",
+    uri: "",
+    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
+    starred: true,
+    size: 2.1,
+  },
+  {
+    id: "seed-2",
+    type: "video",
+    uri: "",
+    timestamp: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
+    starred: false,
+    size: 18.4,
+  },
+  {
+    id: "seed-3",
+    type: "photo",
+    uri: "",
+    timestamp: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
+    starred: false,
+    size: 1.8,
+  },
+  {
+    id: "seed-4",
+    type: "photo",
+    uri: "",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+    starred: true,
+    size: 2.6,
+  },
+  {
+    id: "seed-5",
+    type: "video",
+    uri: "",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString(),
+    starred: false,
+    size: 34.2,
+  },
 ];
 
 export const useAppStore = create<AppState>()(
@@ -179,7 +246,7 @@ export const useAppStore = create<AppState>()(
       },
       contacts: defaultContacts,
       alerts: defaultAlerts,
-      media: [],
+      media: defaultMedia,
       cameraSettings: {
         resolution: "1080p 60fps",
         flashEnabled: false,

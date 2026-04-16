@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -42,6 +43,25 @@ export default function AlertsScreen() {
 
   const iconConfig = (type: AlertType["type"]) => ALERT_ICONS[type];
 
+  const handleMarkAllRead = () => {
+    alerts.forEach((a) => { if (!a.read) markAlertRead(a.id); });
+  };
+
+  const handleClearAll = () => {
+    Alert.alert(
+      "Clear All Alerts",
+      "Remove all alerts from this list?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: () => filtered.forEach((a) => dismissAlert(a.id)),
+        },
+      ]
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View
@@ -59,6 +79,26 @@ export default function AlertsScreen() {
             <View style={[styles.unreadBadge, { backgroundColor: colors.sos }]}>
               <Text style={styles.unreadText}>{unreadCount}</Text>
             </View>
+          )}
+        </View>
+        <View style={styles.headerActions}>
+          {unreadCount > 0 && (
+            <TouchableOpacity
+              onPress={handleMarkAllRead}
+              style={[styles.headerActionBtn, { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}40` }]}
+            >
+              <Ionicons name="checkmark-done" size={14} color={colors.primary} />
+              <Text style={[styles.headerActionText, { color: colors.primary }]}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
+          {filtered.length > 0 && (
+            <TouchableOpacity
+              onPress={handleClearAll}
+              style={[styles.headerActionBtn, { backgroundColor: `${colors.sos}15`, borderColor: `${colors.sos}30` }]}
+            >
+              <Ionicons name="trash-outline" size={14} color={colors.sos} />
+              <Text style={[styles.headerActionText, { color: colors.sos }]}>Clear</Text>
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -205,6 +245,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  headerActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  headerActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  headerActionText: { fontSize: 12, fontWeight: "600" },
   filterScroll: { flexGrow: 0 },
   filterRow: {
     flexDirection: "row",

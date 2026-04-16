@@ -7,9 +7,11 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useAppStore } from "@/store/appStore";
 import { useHeartRateSimulator } from "@/hooks/useHeartRateSimulator";
@@ -23,7 +25,8 @@ import { CapabilitiesBadges } from "@/components/CapabilitiesBadges";
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { health, device } = useAppStore();
+  const router = useRouter();
+  const { health, device, alerts, updateDevice } = useAppStore();
   const [refreshing, setRefreshing] = React.useState(false);
 
   useHeartRateSimulator();
@@ -43,6 +46,34 @@ export default function HomeScreen() {
 
   const networkStatusColor =
     device.networkStatus === "secure" ? colors.success : colors.warning;
+
+  const unreadAlerts = alerts.filter((a) => !a.read).length;
+
+  const handleNotifications = () => {
+    router.push("/(tabs)/alerts");
+  };
+
+  const handleBluetoothPair = () => {
+    if (device.connected) {
+      Alert.alert(
+        "Bluetooth Connection",
+        `Connected to ${device.deviceName}\n\nSignal: ${device.signalStrength}%\nFirmware: ${device.firmwareVersion}`,
+        [
+          { text: "Disconnect", style: "destructive", onPress: () => updateDevice({ connected: false }) },
+          { text: "Close", style: "cancel" },
+        ]
+      );
+    } else {
+      Alert.alert(
+        "Scan for Pendant",
+        "Searching for nearby Aura Pendant Pro devices via Bluetooth...",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Connect", onPress: () => updateDevice({ connected: true }) },
+        ]
+      );
+    }
+  };
 
   return (
     <ScrollView
@@ -74,8 +105,14 @@ export default function HomeScreen() {
         </View>
         <TouchableOpacity
           style={[styles.notifBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={handleNotifications}
         >
           <Ionicons name="notifications-outline" size={20} color={colors.foreground} />
+          {unreadAlerts > 0 && (
+            <View style={[styles.notifBadge, { backgroundColor: colors.sos }]}>
+              <Text style={styles.notifBadgeText}>{unreadAlerts > 9 ? "9+" : unreadAlerts}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -174,8 +211,9 @@ export default function HomeScreen() {
       </View>
 
       <TouchableOpacity
-        style={[styles.pairCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+        style={[styles.pairCard, { backgroundColor: colors.card, borderColor: device.connected ? `${colors.success}50` : colors.border }]}
         activeOpacity={0.8}
+        onPress={handleBluetoothPair}
       >
         <View style={[styles.pairIconBg, { backgroundColor: `${colors.primary}15` }]}>
           <Ionicons name="bluetooth" size={22} color={colors.primary} />
@@ -252,6 +290,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  notifBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  notifBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
   heartCard: { padding: 16, gap: 12 },
   heartHeader: {
     flexDirection: "row",

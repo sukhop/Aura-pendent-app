@@ -19,7 +19,7 @@ interface QuickItem {
 export function QuickAccessGrid() {
   const colors = useColors();
   const router = useRouter();
-  const { contacts, alerts } = useAppStore();
+  const { contacts, alerts, media } = useAppStore();
 
   const unreadAlerts = alerts.filter((a) => !a.read).length;
 
@@ -37,7 +37,7 @@ export function QuickAccessGrid() {
     {
       id: "gallery",
       label: "Gallery",
-      sublabel: "0 items",
+      sublabel: media.length > 0 ? `${media.length} item${media.length !== 1 ? "s" : ""}` : "No media yet",
       route: "/(tabs)/gallery",
       iconName: "images",
       iconFamily: "ionicons",
@@ -47,7 +47,7 @@ export function QuickAccessGrid() {
     {
       id: "loved",
       label: "Loved Ones",
-      sublabel: `${contacts.length} contacts`,
+      sublabel: `${contacts.length} contact${contacts.length !== 1 ? "s" : ""}`,
       route: "/(tabs)/loved",
       iconName: "people",
       iconFamily: "ionicons",
@@ -61,8 +61,8 @@ export function QuickAccessGrid() {
       route: "/(tabs)/alerts",
       iconName: "notifications",
       iconFamily: "ionicons",
-      iconColor: colors.warning,
-      bgColor: `${colors.warning}20`,
+      iconColor: unreadAlerts > 0 ? colors.sos : colors.warning,
+      bgColor: unreadAlerts > 0 ? `${colors.sos}20` : `${colors.warning}20`,
     },
   ];
 

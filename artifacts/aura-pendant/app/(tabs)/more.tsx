@@ -21,7 +21,7 @@ type Resolution = typeof RESOLUTIONS[number];
 export default function MoreScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { device, cameraSettings, privacySettings, updateCameraSettings, updatePrivacySettings } =
+  const { device, cameraSettings, privacySettings, updateCameraSettings, updatePrivacySettings, updateDevice, media } =
     useAppStore();
   const [showResolutionPicker, setShowResolutionPicker] = useState(false);
 
@@ -40,9 +40,31 @@ export default function MoreScreen() {
         {
           text: "Format",
           style: "destructive",
-          onPress: () => Alert.alert("Storage Formatted", "All local media has been cleared."),
+          onPress: () => {
+            updateDevice({ storageUsed: 0.1 });
+            Alert.alert("✅ Storage Formatted", "All local media has been cleared.");
+          },
         },
       ]
+    );
+  };
+
+  const handleCheckUpdates = () => {
+    Alert.alert(
+      "Checking for Updates",
+      "Searching for firmware updates...",
+      [{ text: "OK" }]
+    );
+    setTimeout(() => {
+      Alert.alert("✅ Up to Date", `Firmware ${device.firmwareVersion} is the latest version.`);
+    }, 1500);
+  };
+
+  const handleEditProfile = () => {
+    Alert.alert(
+      "Edit Profile",
+      "Profile editing is not available in this demo.",
+      [{ text: "OK" }]
     );
   };
 
@@ -70,7 +92,7 @@ export default function MoreScreen() {
             <Text style={[styles.proBadgeText, { color: colors.primary }]}>PRO PLAN</Text>
           </View>
         </View>
-        <TouchableOpacity style={[styles.editBtn, { borderColor: colors.border }]}>
+        <TouchableOpacity style={[styles.editBtn, { borderColor: colors.border }]} onPress={handleEditProfile}>
           <Ionicons name="pencil" size={16} color={colors.foreground} />
         </TouchableOpacity>
       </View>
@@ -118,7 +140,7 @@ export default function MoreScreen() {
         </View>
 
         <Divider colors={colors} />
-        <TouchableRow icon="refresh" iconColor={colors.success} label="Check for Updates" sublabel="Firmware is up to date" colors={colors} />
+        <TouchableRow icon="refresh" iconColor={colors.success} label="Check for Updates" sublabel="Firmware is up to date" onPress={handleCheckUpdates} colors={colors} />
         <Divider colors={colors} />
         <TouchableRow
           icon="trash"

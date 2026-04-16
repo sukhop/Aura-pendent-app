@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
+import { useRouter } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { useAppStore } from "@/store/appStore";
 
@@ -20,12 +21,13 @@ type Mode = "photo" | "video";
 export default function LiveScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [cameraStarted, setCameraStarted] = useState(false);
   const [mode, setMode] = useState<Mode>("photo");
   const [isRecording, setIsRecording] = useState(false);
   const [facing, setFacing] = useState<"front" | "back">("back");
-  const { cameraSettings, updateCameraSettings, addMedia } = useAppStore();
+  const { cameraSettings, updateCameraSettings, addMedia, updateDevice, device } = useAppStore();
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -71,33 +73,41 @@ export default function LiveScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (mode === "photo") {
       const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      const size = parseFloat((1.5 + Math.random() * 3).toFixed(1));
       addMedia({
         id,
         type: "photo",
         uri: "",
         timestamp: new Date().toISOString(),
         starred: false,
-        size: 2.4,
+        size,
       });
-      Alert.alert("Photo Captured", "Photo saved to gallery.");
+      updateDevice({ storageUsed: parseFloat((device.storageUsed + size / 1024).toFixed(2)) });
+      Alert.alert("📸 Photo Captured", "Photo saved to gallery.");
     } else {
       if (isRecording) {
         setIsRecording(false);
         const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+        const size = parseFloat((recordingSeconds * 0.5 + 2).toFixed(1));
         addMedia({
           id,
           type: "video",
           uri: "",
           timestamp: new Date().toISOString(),
           starred: false,
-          size: 15.2,
+          size,
         });
-        Alert.alert("Video Saved", `Video (${recordingSeconds}s) saved to gallery.`);
+        updateDevice({ storageUsed: parseFloat((device.storageUsed + size / 1024).toFixed(2)) });
+        Alert.alert("🎥 Video Saved", `${recordingSeconds}s video saved to gallery.`);
       } else {
         setIsRecording(true);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       }
     }
+  };
+
+  const handleGoToGallery = () => {
+    router.push("/(tabs)/gallery");
   };
 
   const formatTime = (s: number) => {
@@ -159,7 +169,10 @@ export default function LiveScreen() {
         </View>
 
         <View style={[styles.controls, { paddingBottom: bottomPadding + 90 }]}>
-          <TouchableOpacity style={[styles.controlBtn, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <TouchableOpacity
+            style={[styles.controlBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={handleGoToGallery}
+          >
             <Ionicons name="images-outline" size={22} color={colors.foreground} />
           </TouchableOpacity>
           <TouchableOpacity
@@ -204,6 +217,7 @@ export default function LiveScreen() {
           pulseAnim={pulseAnim}
           bottomPadding={bottomPadding}
           colors={colors}
+          onGallery={handleGoToGallery}
         />
       </View>
     );
@@ -240,6 +254,7 @@ export default function LiveScreen() {
         pulseAnim={pulseAnim}
         bottomPadding={bottomPadding}
         colors={colors}
+        onGallery={handleGoToGallery}
       />
     </View>
   );
@@ -248,7 +263,7 @@ export default function LiveScreen() {
 function CameraControls({
   mode, setMode, isRecording, facing, setFacing, handleCapture,
   formatTime, recordingSeconds, flashEnabled, setFlash, audioEnabled,
-  setAudio, pulseAnim, bottomPadding, colors,
+  setAudio, pulseAnim, bottomPadding, colors, onGallery,
 }: any) {
   return (
     <View style={[styles.cameraOverlay, { paddingBottom: bottomPadding + 90 }]}>
@@ -300,7 +315,7 @@ function CameraControls({
       </View>
 
       <View style={styles.controls}>
-        <TouchableOpacity style={styles.controlBtn2}>
+        <TouchableOpacity style={styles.controlBtn2} onPress={onGallery}>
           <Ionicons name="images-outline" size={22} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity
@@ -390,6 +405,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-around",
     paddingHorizontal: 32,
+    gap: 20
   },
   controlBtn: {
     width: 52,
