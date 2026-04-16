@@ -71,6 +71,13 @@ export interface AlertBehavior {
   dailyCheckin: boolean;
 }
 
+export interface UserProfile {
+  name: string;
+  email: string;
+  initials: string;
+  avatarColor: string;
+}
+
 interface AppState {
   device: DeviceState;
   health: HealthData;
@@ -81,6 +88,9 @@ interface AppState {
   privacySettings: PrivacySettings;
   alertBehavior: AlertBehavior;
   sosActive: boolean;
+  sosLocation: { lat: number; lng: number } | null;
+  profile: UserProfile;
+  batteryAlertSent: boolean;
 
   updateDevice: (updates: Partial<DeviceState>) => void;
   updateHealth: (updates: Partial<HealthData>) => void;
@@ -90,13 +100,19 @@ interface AppState {
   addAlert: (alert: Alert) => void;
   dismissAlert: (id: string) => void;
   markAlertRead: (id: string) => void;
+  markAllAlertsRead: () => void;
   addMedia: (item: MediaItem) => void;
+  deleteMedia: (id: string) => void;
+  clearAllMedia: () => void;
   toggleStarMedia: (id: string) => void;
   updateCameraSettings: (updates: Partial<CameraSettings>) => void;
   updatePrivacySettings: (updates: Partial<PrivacySettings>) => void;
   updateAlertBehavior: (updates: Partial<AlertBehavior>) => void;
+  updateProfile: (updates: Partial<UserProfile>) => void;
   triggerSOS: () => void;
   cancelSOS: () => void;
+  disconnectDevice: () => void;
+  setBatteryAlertSent: (val: boolean) => void;
 }
 
 const defaultContacts: Contact[] = [
@@ -144,7 +160,7 @@ const defaultAlerts: Alert[] = [
     type: "Device",
     title: "Aura Connected",
     message: "Pendant connected successfully",
-    timestamp: "Apr 10, 12:20 PM",
+    timestamp: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
     read: false,
   },
   {
@@ -152,7 +168,7 @@ const defaultAlerts: Alert[] = [
     type: "Health",
     title: "Heart rate normal",
     message: "72 BPM — all vitals stable",
-    timestamp: "Apr 10, 11:55 AM",
+    timestamp: new Date(Date.now() - 1000 * 60 * 50).toISOString(),
     read: true,
   },
   {
@@ -160,7 +176,7 @@ const defaultAlerts: Alert[] = [
     type: "Camera",
     title: "Motion detected",
     message: "Camera triggered by motion at 10:30 AM",
-    timestamp: "Apr 10, 10:30 AM",
+    timestamp: new Date(Date.now() - 1000 * 60 * 115).toISOString(),
     read: false,
   },
   {
@@ -168,7 +184,7 @@ const defaultAlerts: Alert[] = [
     type: "Device",
     title: "Battery low",
     message: "Pendant battery at 15% — please charge soon",
-    timestamp: "Apr 9, 8:45 PM",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 15).toISOString(),
     read: true,
   },
   {
@@ -176,7 +192,7 @@ const defaultAlerts: Alert[] = [
     type: "Health",
     title: "Elevated heart rate",
     message: "Heart rate reached 112 BPM — monitor closely",
-    timestamp: "Apr 9, 3:12 PM",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 33).toISOString(),
     read: true,
   },
 ];
@@ -226,7 +242,7 @@ const defaultMedia: MediaItem[] = [
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       device: {
         connected: true,
         batteryLevel: 84,
@@ -267,6 +283,14 @@ export const useAppStore = create<AppState>()(
         dailyCheckin: false,
       },
       sosActive: false,
+      sosLocation: null,
+      profile: {
+        name: "John Doe",
+        email: "john.doe@example.com",
+        initials: "JD",
+        avatarColor: "#7C6FFF",
+      },
+      batteryAlertSent: false,
 
       updateDevice: (updates) =>
         set((state) => ({ device: { ...state.device, ...updates } })),
@@ -296,8 +320,17 @@ export const useAppStore = create<AppState>()(
             a.id === id ? { ...a, read: true } : a
           ),
         })),
+      markAllAlertsRead: () =>
+        set((state) => ({
+          alerts: state.alerts.map((a) => ({ ...a, read: true })),
+        })),
       addMedia: (item) =>
         set((state) => ({ media: [item, ...state.media] })),
+      deleteMedia: (id) =>
+        set((state) => ({
+          media: state.media.filter((m) => m.id !== id),
+        })),
+      clearAllMedia: () => set({ media: [] }),
       toggleStarMedia: (id) =>
         set((state) => ({
           media: state.media.map((m) =>
@@ -316,8 +349,43 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           alertBehavior: { ...state.alertBehavior, ...updates },
         })),
-      triggerSOS: () => set({ sosActive: true }),
-      cancelSOS: () => set({ sosActive: false }),
+      updateProfile: (updates) =>
+        set((state) => ({
+          profile: { ...state.profile, ...updates },
+        })),
+      triggerSOS: () => {
+        // Generate a simulated GPS location near Bangalore
+        const lat = 12.9716 + (Math.random() - 0.5) * 0.05;
+        const lng = 77.5946 + (Math.random() - 0.5) * 0.05;
+        set({ sosActive: true, sosLocation: { lat, lng } });
+        const state = get();
+        state.addAlert({
+          id: Date.now().toString(),
+          type: "SOS",
+          title: "🔴 SOS Activated",
+          message: `Emergency alert sent to ${state.contacts.filter((c) => c.sosEnabled).length} contacts. GPS shared.`,
+          timestamp: new Date().toISOString(),
+          read: false,
+        });
+      },
+      cancelSOS: () => set({ sosActive: false, sosLocation: null }),
+      disconnectDevice: () => {
+        set((state) => ({
+          device: { ...state.device, connected: false },
+        }));
+        const state = get();
+        if (state.alertBehavior.notifyDisconnect) {
+          state.addAlert({
+            id: Date.now().toString(),
+            type: "Device",
+            title: "Pendant Disconnected",
+            message: "Your Aura Pendant has lost connection. Check Bluetooth.",
+            timestamp: new Date().toISOString(),
+            read: false,
+          });
+        }
+      },
+      setBatteryAlertSent: (val) => set({ batteryAlertSent: val }),
     }),
     {
       name: "aura-pendant-storage",

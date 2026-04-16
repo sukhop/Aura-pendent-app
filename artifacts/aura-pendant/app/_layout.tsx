@@ -16,6 +16,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Text, TextInput, StyleSheet } from "react-native";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { BiometricLockScreen } from "@/components/BiometricLockScreen";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -46,9 +47,12 @@ const patchDefaultFonts = () => {
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back", headerShown: false }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-    </Stack>
+    <>
+      <BiometricLockScreen />
+      <Stack screenOptions={{ headerBackTitle: "Back", headerShown: false }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      </Stack>
+    </>
   );
 }
 

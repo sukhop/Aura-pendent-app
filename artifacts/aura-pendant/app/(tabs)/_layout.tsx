@@ -1,59 +1,86 @@
 import { BlurView } from "expo-blur";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
-import { Icon, Label, Badge, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
-import { Feather, Ionicons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  View,
+  Text,
+  useColorScheme,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { useAppStore } from "@/store/appStore";
 
-function NativeTabLayout() {
+const TAB_CONFIG = [
+  { name: "index", icon: "home", iconFill: "home", label: "Home", sfDefault: "house", sfSelected: "house.fill" },
+  { name: "live", icon: "camera", iconFill: "camera", label: "Live", sfDefault: "camera", sfSelected: "camera.fill" },
+  { name: "gallery", icon: "images", iconFill: "images", label: "Gallery", sfDefault: "photo", sfSelected: "photo.fill" },
+  { name: "loved", icon: "people", iconFill: "people", label: "Loved", sfDefault: "person.2", sfSelected: "person.2.fill" },
+  { name: "alerts", icon: "notifications", iconFill: "notifications", label: "Alerts", sfDefault: "bell", sfSelected: "bell.fill" },
+  { name: "more", icon: "settings", iconFill: "settings", label: "More", sfDefault: "gearshape", sfSelected: "gearshape.fill" },
+] as const;
+
+function TabIcon({
+  name,
+  focused,
+  tabName,
+}: {
+  name: string;
+  focused: boolean;
+  tabName: string;
+}) {
+  const colors = useColors();
   const { alerts } = useAppStore();
   const unread = alerts.filter((a) => !a.read).length;
+  const isIOS = Platform.OS === "ios";
+
+  const config = TAB_CONFIG.find((t) => t.name === tabName)!;
+  const isAlerts = tabName === "alerts";
 
   return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Home</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="live">
-        <Icon sf={{ default: "camera", selected: "camera.fill" }} />
-        <Label>Live</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="gallery">
-        <Icon sf={{ default: "photo", selected: "photo.fill" }} />
-        <Label>Gallery</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="loved">
-        <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
-        <Label>Loved</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="alerts">
-        <Icon sf={{ default: "bell", selected: "bell.fill" }} />
-        <Label>Alerts</Label>
-        {unread > 0 && <Badge>{unread}</Badge>}
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="more">
-        <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
-        <Label>More</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
+    <View style={tabStyles.iconWrapper}>
+      {isIOS ? (
+        <SymbolView
+          name={focused ? config.sfSelected : config.sfDefault}
+          tintColor={focused ? colors.primary : colors.mutedForeground}
+          size={22}
+        />
+      ) : (
+        <Ionicons
+          name={
+            (focused ? config.iconFill : config.icon) as any
+          }
+          size={22}
+          color={focused ? colors.primary : colors.mutedForeground}
+        />
+      )}
+      {isAlerts && unread > 0 && (
+        <View style={[tabStyles.badge, { backgroundColor: colors.sos }]}>
+          <Text style={tabStyles.badgeText}>{unread > 9 ? "9+" : unread}</Text>
+        </View>
+      )}
+      {focused && (
+        <View
+          style={[
+            tabStyles.activeDot,
+            { backgroundColor: colors.primary, shadowColor: colors.primary },
+          ]}
+        />
+      )}
+    </View>
   );
 }
 
-function ClassicTabLayout() {
+export default function TabLayout() {
   const colors = useColors();
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
-  const { alerts } = useAppStore();
-  const unread = alerts.filter((a) => !a.read).length;
 
   return (
     <Tabs
@@ -61,111 +88,96 @@ function ClassicTabLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.mutedForeground,
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: "600",
+          marginTop: -2,
+        },
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: isIOS ? "transparent" : colors.card,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
+          backgroundColor: isIOS ? "transparent" : `${colors.card}F5`,
+          borderTopWidth: 0,
           elevation: 0,
           paddingBottom: insets.bottom,
-          ...(isWeb ? { height: 84 } : {}),
+          height: isWeb ? 70 : 56 + insets.bottom,
+          borderTopColor: "transparent",
         },
         tabBarBackground: () =>
           isIOS ? (
             <BlurView
-              intensity={90}
+              intensity={85}
               tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  borderTopWidth: 1,
+                  borderTopColor: colors.border,
+                },
+              ]}
             />
-          ) : isWeb ? (
+          ) : (
             <View
-              style={[StyleSheet.absoluteFill, { backgroundColor: colors.card }]}
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  backgroundColor: `${colors.card}F8`,
+                  borderTopWidth: 1,
+                  borderTopColor: colors.border,
+                },
+              ]}
             />
-          ) : null,
+          ),
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="house" tintColor={color} size={22} />
-            ) : (
-              <Ionicons name="home" size={22} color={color} />
+      {TAB_CONFIG.map((tab) => (
+        <Tabs.Screen
+          key={tab.name}
+          name={tab.name}
+          options={{
+            title: tab.label,
+            tabBarIcon: ({ focused }) => (
+              <TabIcon
+                name={tab.icon}
+                focused={focused}
+                tabName={tab.name}
+              />
             ),
-        }}
-      />
-      <Tabs.Screen
-        name="live"
-        options={{
-          title: "Live",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="camera" tintColor={color} size={22} />
-            ) : (
-              <Ionicons name="camera" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="gallery"
-        options={{
-          title: "Gallery",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="photo" tintColor={color} size={22} />
-            ) : (
-              <Ionicons name="images" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="loved"
-        options={{
-          title: "Loved",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="person.2" tintColor={color} size={22} />
-            ) : (
-              <Ionicons name="people" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="alerts"
-        options={{
-          title: "Alerts",
-          tabBarBadge: unread > 0 ? unread : undefined,
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="bell" tintColor={color} size={22} />
-            ) : (
-              <Ionicons name="notifications" size={22} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="more"
-        options={{
-          title: "More",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="gearshape" tintColor={color} size={22} />
-            ) : (
-              <Ionicons name="settings" size={22} color={color} />
-            ),
-        }}
-      />
+          }}
+        />
+      ))}
     </Tabs>
   );
 }
 
-export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
-}
-
-const styles = StyleSheet.create({});
+const tabStyles = StyleSheet.create({
+  iconWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 32,
+  },
+  badge: {
+    position: "absolute",
+    top: -2,
+    right: 0,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  badgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
+  activeDot: {
+    position: "absolute",
+    bottom: -6,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+});

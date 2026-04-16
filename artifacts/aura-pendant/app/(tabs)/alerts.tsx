@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Platform,
@@ -25,11 +25,98 @@ const ALERT_ICONS: Record<AlertType["type"], { name: string; color: string }> = 
   Camera: { name: "camera", color: "#00C2FF" },
 };
 
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function AlertCard({ alert, onRead, onDismiss }: {
+  alert: AlertType;
+  onRead: (id: string) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const colors = useColors();
+  const slideAnim = useRef(new Animated.Value(1)).current;
+  const icon = ALERT_ICONS[alert.type];
+
+  const handleDismiss = () => {
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => onDismiss(alert.id));
+  };
+
+  return (
+    <Animated.View
+      style={{
+        opacity: slideAnim,
+        transform: [
+          {
+            translateX: slideAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [40, 0],
+            }),
+          },
+        ],
+      }}
+    >
+      <TouchableOpacity
+        style={[
+          styles.alertCard,
+          {
+            backgroundColor: colors.card,
+            borderColor: !alert.read ? `${icon.color}40` : colors.border,
+            borderLeftColor: icon.color,
+            borderLeftWidth: 3,
+          },
+        ]}
+        onPress={() => onRead(alert.id)}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.alertIconBg, { backgroundColor: `${icon.color}20` }]}>
+          <Ionicons name={icon.name as any} size={20} color={icon.color} />
+        </View>
+        <View style={styles.alertContent}>
+          <View style={styles.alertTitleRow}>
+            <Text style={[styles.alertTitle, { color: colors.foreground }]}>
+              {alert.title}
+            </Text>
+            {!alert.read && (
+              <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
+            )}
+          </View>
+          <Text style={[styles.alertMessage, { color: colors.mutedForeground }]}>
+            {alert.message}
+          </Text>
+          <Text style={[styles.alertTime, { color: colors.mutedForeground }]}>
+            {timeAgo(alert.timestamp)}
+          </Text>
+        </View>
+        <TouchableOpacity
+          onPress={handleDismiss}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.dismissBtn}
+        >
+          <Ionicons name="close" size={16} color={colors.mutedForeground} />
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
 export default function AlertsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alerts, dismissAlert, markAlertRead } = useAppStore();
+  const { alerts, dismissAlert, markAlertRead, markAllAlertsRead } = useAppStore();
   const [activeFilter, setActiveFilter] = useState<FilterTab>("All");
+  const badgeAnim = useRef(new Animated.Value(1)).current;
 
   const isWeb = Platform.OS === "web";
   const topPadding = isWeb ? 67 : insets.top;
@@ -41,11 +128,15 @@ export default function AlertsScreen() {
 
   const unreadCount = alerts.filter((a) => !a.read).length;
 
-  const iconConfig = (type: AlertType["type"]) => ALERT_ICONS[type];
-
-  const handleMarkAllRead = () => {
-    alerts.forEach((a) => { if (!a.read) markAlertRead(a.id); });
-  };
+  // Pulse unread badge when count changes
+  useEffect(() => {
+    if (unreadCount > 0) {
+      Animated.sequence([
+        Animated.timing(badgeAnim, { toValue: 1.3, duration: 200, useNativeDriver: true }),
+        Animated.timing(badgeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [unreadCount]);
 
   const handleClearAll = () => {
     Alert.alert(
@@ -62,47 +153,71 @@ export default function AlertsScreen() {
     );
   };
 
+  const iconConfig = (type: AlertType["type"]) => ALERT_ICONS[type];
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
       <View
         style={[
           styles.header,
-          {
-            paddingTop: topPadding + 16,
-            backgroundColor: colors.background,
-          },
+          { paddingTop: topPadding + 16, backgroundColor: colors.background },
         ]}
       >
         <View style={styles.titleRow}>
-          <Text style={[styles.title, { color: colors.foreground }]}>Alerts</Text>
+          <Text style={[styles.title, { color: colors.foreground }]}>
+            Alerts
+          </Text>
           {unreadCount > 0 && (
-            <View style={[styles.unreadBadge, { backgroundColor: colors.sos }]}>
+            <Animated.View
+              style={[
+                styles.unreadBadge,
+                { backgroundColor: colors.sos, transform: [{ scale: badgeAnim }] },
+              ]}
+            >
               <Text style={styles.unreadText}>{unreadCount}</Text>
-            </View>
+            </Animated.View>
           )}
         </View>
         <View style={styles.headerActions}>
           {unreadCount > 0 && (
             <TouchableOpacity
-              onPress={handleMarkAllRead}
-              style={[styles.headerActionBtn, { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}40` }]}
+              onPress={markAllAlertsRead}
+              style={[
+                styles.headerActionBtn,
+                {
+                  backgroundColor: `${colors.primary}20`,
+                  borderColor: `${colors.primary}40`,
+                },
+              ]}
             >
               <Ionicons name="checkmark-done" size={14} color={colors.primary} />
-              <Text style={[styles.headerActionText, { color: colors.primary }]}>Mark all read</Text>
+              <Text style={[styles.headerActionText, { color: colors.primary }]}>
+                Mark all read
+              </Text>
             </TouchableOpacity>
           )}
           {filtered.length > 0 && (
             <TouchableOpacity
               onPress={handleClearAll}
-              style={[styles.headerActionBtn, { backgroundColor: `${colors.sos}15`, borderColor: `${colors.sos}30` }]}
+              style={[
+                styles.headerActionBtn,
+                {
+                  backgroundColor: `${colors.sos}15`,
+                  borderColor: `${colors.sos}30`,
+                },
+              ]}
             >
               <Ionicons name="trash-outline" size={14} color={colors.sos} />
-              <Text style={[styles.headerActionText, { color: colors.sos }]}>Clear</Text>
+              <Text style={[styles.headerActionText, { color: colors.sos }]}>
+                Clear
+              </Text>
             </TouchableOpacity>
           )}
         </View>
       </View>
 
+      {/* Filter chips */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -141,17 +256,33 @@ export default function AlertsScreen() {
                 },
               ]}
             >
-              {tab === "SOS" ? "🔴 SOS" : tab === "Health" ? "❤ Health" : tab}
+              {tab}
             </Text>
+            {tab !== "All" && (
+              <Text
+                style={[
+                  styles.filterCount,
+                  {
+                    color:
+                      activeFilter === tab
+                        ? "rgba(255,255,255,0.7)"
+                        : colors.mutedForeground,
+                  },
+                ]}
+              >
+                {alerts.filter((a) => a.type === tab).length}
+              </Text>
+            )}
           </TouchableOpacity>
         ))}
       </ScrollView>
 
+      {/* Alert list */}
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.list,
-          { paddingBottom: bottomPadding + 100 },
+          { paddingBottom: bottomPadding + 110 },
         ]}
       >
         {filtered.length === 0 ? (
@@ -162,66 +293,37 @@ export default function AlertsScreen() {
                 { backgroundColor: colors.card, borderColor: colors.border },
               ]}
             >
-              <Ionicons name="notifications-off-outline" size={36} color={colors.mutedForeground} />
+              <Ionicons
+                name="notifications-off-outline"
+                size={36}
+                color={colors.mutedForeground}
+              />
             </View>
             <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
               No alerts
             </Text>
-            <Text style={[styles.emptySubtitle, { color: colors.mutedForeground }]}>
-              All clear — no {activeFilter === "All" ? "" : activeFilter.toLowerCase() + " "}alerts right now.
+            <Text
+              style={[
+                styles.emptySubtitle,
+                { color: colors.mutedForeground },
+              ]}
+            >
+              All clear — no{" "}
+              {activeFilter === "All"
+                ? ""
+                : activeFilter.toLowerCase() + " "}
+              alerts right now.
             </Text>
           </View>
         ) : (
-          filtered.map((alert) => {
-            const icon = iconConfig(alert.type);
-            return (
-              <TouchableOpacity
-                key={alert.id}
-                style={[
-                  styles.alertCard,
-                  {
-                    backgroundColor: colors.card,
-                    borderColor: !alert.read ? `${icon.color}40` : colors.border,
-                    borderLeftColor: icon.color,
-                    borderLeftWidth: 3,
-                  },
-                ]}
-                onPress={() => markAlertRead(alert.id)}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.alertIconBg,
-                    { backgroundColor: `${icon.color}20` },
-                  ]}
-                >
-                  <Ionicons name={icon.name as any} size={20} color={icon.color} />
-                </View>
-                <View style={styles.alertContent}>
-                  <Text style={[styles.alertTitle, { color: colors.foreground }]}>
-                    {alert.title}
-                  </Text>
-                  <Text style={[styles.alertMessage, { color: colors.mutedForeground }]}>
-                    {alert.message}
-                  </Text>
-                  <Text style={[styles.alertTime, { color: colors.mutedForeground }]}>
-                    {alert.timestamp}
-                  </Text>
-                </View>
-                <View style={styles.alertRight}>
-                  {!alert.read && (
-                    <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
-                  )}
-                  <TouchableOpacity
-                    onPress={() => dismissAlert(alert.id)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="close" size={16} color={colors.mutedForeground} />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            );
-          })
+          filtered.map((alert) => (
+            <AlertCard
+              key={alert.id}
+              alert={alert}
+              onRead={markAlertRead}
+              onDismiss={dismissAlert}
+            />
+          ))
         )}
       </ScrollView>
     </View>
@@ -230,28 +332,25 @@ export default function AlertsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-  },
+  header: { paddingHorizontal: 16, paddingBottom: 12 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   title: { fontSize: 28, fontWeight: "800" },
   unreadBadge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 6,
+    paddingHorizontal: 7,
   },
-  unreadText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+  unreadText: { color: "#fff", fontSize: 12, fontWeight: "800" },
   headerActions: { flexDirection: "row", gap: 8, marginTop: 8 },
   headerActionBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 10,
     borderWidth: 1,
   },
@@ -274,6 +373,7 @@ const styles = StyleSheet.create({
   },
   filterDot: { width: 6, height: 6, borderRadius: 3 },
   filterText: { fontSize: 13, fontWeight: "600" },
+  filterCount: { fontSize: 11, fontWeight: "700" },
   list: { paddingHorizontal: 16, gap: 10 },
   empty: {
     alignItems: "center",
@@ -305,11 +405,13 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   alertContent: { flex: 1, gap: 3 },
-  alertTitle: { fontSize: 14, fontWeight: "700" },
-  alertMessage: { fontSize: 12 },
-  alertTime: { fontSize: 11 },
-  alertRight: { alignItems: "flex-end", gap: 8 },
-  unreadDot: { width: 8, height: 8, borderRadius: 4 },
+  alertTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  alertTitle: { fontSize: 14, fontWeight: "700", flex: 1 },
+  alertMessage: { fontSize: 12, lineHeight: 16 },
+  alertTime: { fontSize: 11, marginTop: 1 },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  dismissBtn: { padding: 4 },
 });

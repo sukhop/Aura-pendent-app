@@ -1,219 +1,208 @@
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useAppStore } from "@/store/appStore";
-import { BatteryIndicator } from "./BatteryIndicator";
+import { BatteryIndicator } from "@/components/BatteryIndicator";
+import { SignalBars } from "@/components/SignalBars";
 
 export function ConnectionBanner() {
   const colors = useColors();
-  const { device, updateDevice } = useAppStore();
-  const dotAnim = useRef(new Animated.Value(1)).current;
+  const { device, updateDevice, disconnectDevice } = useAppStore();
+
+  const searchAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dotAnim, { toValue: 0.3, duration: 1000, useNativeDriver: true }),
-        Animated.timing(dotAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
+    Animated.timing(fadeIn, {
+      toValue: 1,
+      duration: 400,
+      useNativeDriver: true,
+    }).start();
   }, []);
 
+  useEffect(() => {
+    if (!device.connected) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(searchAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(searchAnim, {
+            toValue: 0,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      searchAnim.setValue(0);
+      // Connected pulse once
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.05, duration: 300, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [device.connected]);
+
   const handleToggleConnection = () => {
-    updateDevice({ connected: !device.connected });
+    if (device.connected) {
+      disconnectDevice();
+    } else {
+      updateDevice({ connected: true });
+    }
   };
 
-  const batteryColor =
-    device.batteryLevel > 50
-      ? colors.battery
-      : device.batteryLevel > 20
-      ? colors.warning
-      : colors.sos;
+  const isIOS = Platform.OS === "ios";
+  const borderColor = device.connected
+    ? `${colors.success}50`
+    : `${colors.warning}50`;
+  const bg = device.connected ? `${colors.success}12` : `${colors.warning}10`;
+
+  const dotColor = device.connected ? colors.success : colors.warning;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={[styles.iconBg, { backgroundColor: `${colors.primary}20` }]}>
-        <MaterialCommunityIcons name="chip" size={26} color={colors.primary} />
-        {device.connected && (
-          <Animated.View
-            style={[styles.dot, { backgroundColor: colors.connected, opacity: dotAnim }]}
-          />
-        )}
-      </View>
-      <View style={styles.info}>
-        <Text style={[styles.name, { color: colors.foreground }]}>{device.deviceName}</Text>
-        <View style={styles.statusRow}>
-          {device.connected ? (
-            <>
-              <Ionicons name="checkmark-circle" size={14} color={colors.connected} />
-              <Text style={[styles.status, { color: colors.connected }]}>Connected</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="close-circle" size={14} color={colors.mutedForeground} />
-              <Text style={[styles.status, { color: colors.mutedForeground }]}>Disconnected</Text>
-            </>
+    <Animated.View
+      style={[
+        styles.banner,
+        {
+          backgroundColor: bg,
+          borderColor,
+          transform: [{ scale: pulseAnim }],
+          opacity: fadeIn,
+        },
+      ]}
+    >
+      <View style={styles.left}>
+        {/* Animated dot */}
+        <View style={styles.dotWrapper}>
+          <View style={[styles.dotInner, { backgroundColor: dotColor }]} />
+          {!device.connected && (
+            <Animated.View
+              style={[
+                styles.dotRing,
+                {
+                  borderColor: dotColor,
+                  opacity: searchAnim,
+                  transform: [
+                    {
+                      scale: searchAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 2.0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
           )}
         </View>
-        {device.connected && (
-          <View style={styles.statsRow}>
-            <View style={styles.stat}>
-              <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>PHOTOS</Text>
-              <Text style={[styles.statValue, { color: colors.foreground }]}>0</Text>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.stat}>
-              <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>VIDEOS</Text>
-              <Text style={[styles.statValue, { color: colors.foreground }]}>0</Text>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.stat}>
-              <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>TODAY</Text>
-              <Text style={[styles.statValue, { color: colors.foreground }]}>0</Text>
-            </View>
-          </View>
-        )}
-        <View style={styles.storageRow}>
-          <MaterialCommunityIcons name="database" size={12} color={colors.mutedForeground} />
-          <Text style={[styles.storageLabel, { color: colors.mutedForeground }]}>Storage</Text>
-          <Text style={[styles.storageValue, { color: colors.foreground }]}>
-            {device.storageUsed} / {device.storageTotal} GB
+
+        <View style={styles.textBlock}>
+          <Text style={[styles.bannerTitle, { color: colors.foreground }]}>
+            {device.connected ? device.deviceName : "Pendant Disconnected"}
+          </Text>
+          <Text style={[styles.bannerSub, { color: colors.mutedForeground }]}>
+            {device.connected
+              ? `Firmware ${device.firmwareVersion}`
+              : "Searching via Bluetooth..."}
           </Text>
         </View>
-        <BatteryIndicator
-          level={(device.storageUsed / device.storageTotal) * 100}
-          height={4}
-        />
       </View>
+
       <View style={styles.right}>
-        <View style={styles.batteryContainer}>
-          <Ionicons
-            name="flash"
-            size={14}
-            color={batteryColor}
-          />
-          <Text style={[styles.batteryText, { color: batteryColor }]}>
-            {device.batteryLevel}%
-          </Text>
-        </View>
-        <BatteryIndicator level={device.batteryLevel} width={60} height={4} />
+        {device.connected && (
+          <>
+            <SignalBars strength={device.signalStrength} size="sm" />
+            <BatteryIndicator level={device.batteryLevel} width={32} height={12} />
+          </>
+        )}
         <TouchableOpacity
+          style={[
+            styles.actionBtn,
+            {
+              backgroundColor: device.connected
+                ? `${colors.success}20`
+                : `${colors.primary}20`,
+              borderColor: device.connected ? colors.success : colors.primary,
+            },
+          ]}
           onPress={handleToggleConnection}
-          style={[styles.pairBtn, { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}40` }]}
         >
           <Ionicons
             name={device.connected ? "bluetooth" : "bluetooth-outline"}
-            size={16}
-            color={colors.primary}
+            size={14}
+            color={device.connected ? colors.success : colors.primary}
           />
+          <Text
+            style={[
+              styles.actionBtnText,
+              {
+                color: device.connected ? colors.success : colors.primary,
+              },
+            ]}
+          >
+            {device.connected ? "Connected" : "Connect"}
+          </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  banner: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    borderWidth: 1,
-  },
-  iconBg: {
-    width: 48,
-    height: 48,
+    alignItems: "center",
+    justifyContent: "space-between",
     borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    gap: 10,
+  },
+  left: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  dotWrapper: {
+    width: 14,
+    height: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  dot: {
-    position: "absolute",
-    top: 4,
-    right: 4,
+  dotInner: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
-  info: {
-    flex: 1,
-    gap: 6,
+  dotRing: {
+    position: "absolute",
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
   },
-  name: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  statusRow: {
+  textBlock: { flex: 1 },
+  bannerTitle: { fontSize: 13, fontWeight: "700" },
+  bannerSub: { fontSize: 11, marginTop: 1 },
+  right: { flexDirection: "row", alignItems: "center", gap: 8 },
+  actionBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-  },
-  status: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginTop: 4,
-  },
-  stat: {
-    alignItems: "center",
-  },
-  statLabel: {
-    fontSize: 9,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  statDivider: {
-    width: 1,
-    height: 30,
-  },
-  storageRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  storageLabel: {
-    fontSize: 11,
-    flex: 1,
-  },
-  storageValue: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  right: {
-    alignItems: "flex-end",
-    gap: 6,
-  },
-  batteryContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  batteryText: {
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  pairBtn: {
-    padding: 8,
-    borderRadius: 10,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
     borderWidth: 1,
-    marginTop: 4,
   },
+  actionBtnText: { fontSize: 11, fontWeight: "700" },
 });

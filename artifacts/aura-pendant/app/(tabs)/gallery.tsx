@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import {
+  Alert,
   FlatList,
+  Image,
   Modal,
   Platform,
   StyleSheet,
@@ -8,8 +10,8 @@ import {
   TouchableOpacity,
   View,
   Dimensions,
-  Alert,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
@@ -27,10 +29,36 @@ const TABS: { id: Tab; label: string }[] = [
 
 const ITEM_SIZE = (Dimensions.get("window").width - 32 - 8) / 3;
 
+// Gradient palettes for media tiles
+const TILE_GRADIENTS: [string, string][] = [
+  ["#7C6FFF", "#4A3FC7"],
+  ["#FF4D6D", "#C1184A"],
+  ["#00C2FF", "#0070A0"],
+  ["#00D68F", "#009B65"],
+  ["#FFB800", "#B07800"],
+  ["#FF6B35", "#C03A00"],
+];
+
+function getGradient(id: string): [string, string] {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) % TILE_GRADIENTS.length;
+  return TILE_GRADIENTS[hash];
+}
+
+function timeAgo(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "Just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export default function GalleryScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { media, toggleStarMedia, device } = useAppStore();
+  const { media, toggleStarMedia, deleteMedia, clearAllMedia, device } = useAppStore();
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [selectedItem, setSelectedItem] = useState<MediaItem | null>(null);
 
@@ -48,84 +76,176 @@ export default function GalleryScreen() {
 
   const storagePercent = (device.storageUsed / device.storageTotal) * 100;
 
-  const formatTimestamp = (ts: string) => {
-    try {
-      const d = new Date(ts);
-      return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    } catch {
-      return ts;
-    }
-  };
-
   const handleCloudSync = () => {
     Alert.alert(
       "Cloud Sync",
       `${media.length} item${media.length !== 1 ? "s" : ""} ready to sync.\n\nStorage used: ${device.storageUsed} GB of ${device.storageTotal} GB`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Sync Now", onPress: () => Alert.alert("Sync Started", "Your media is being uploaded to the cloud.") },
+        {
+          text: "Sync Now",
+          onPress: () =>
+            Alert.alert(
+              "Sync Started",
+              "Your media is being uploaded to the cloud."
+            ),
+        },
       ]
     );
   };
 
-  const renderItem = ({ item }: { item: MediaItem }) => (
-    <TouchableOpacity
-      style={[
-        styles.mediaItem,
-        { backgroundColor: colors.card, width: ITEM_SIZE, height: ITEM_SIZE },
-      ]}
-      activeOpacity={0.8}
-      onPress={() => setSelectedItem(item)}
-    >
-      <View style={styles.mediaPlaceholder}>
-        <Ionicons
-          name={item.type === "photo" ? "camera" : "videocam"}
-          size={24}
-          color={colors.mutedForeground}
-        />
-        <Text style={[styles.mediaTimestamp, { color: colors.mutedForeground }]}>
-          {formatTimestamp(item.timestamp)}
-        </Text>
-      </View>
+  const handleDeleteItem = (item: MediaItem) => {
+    Alert.alert(
+      "Delete Media",
+      `Delete this ${item.type}? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            deleteMedia(item.id);
+            setSelectedItem(null);
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearAll = () => {
+    Alert.alert(
+      "Clear All Media",
+      "This will remove all photos and videos from the gallery. Cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear All",
+          style: "destructive",
+          onPress: clearAllMedia,
+        },
+      ]
+    );
+  };
+
+  const renderItem = ({ item }: { item: MediaItem }) => {
+    const gradient = getGradient(item.id);
+    const hasRealImage = !!item.uri;
+
+    return (
       <TouchableOpacity
-        style={styles.starBtn}
-        onPress={() => toggleStarMedia(item.id)}
+        style={[styles.mediaItem, { width: ITEM_SIZE, height: ITEM_SIZE }]}
+        activeOpacity={0.85}
+        onPress={() => setSelectedItem(item)}
       >
-        <Ionicons
-          name={item.starred ? "star" : "star-outline"}
-          size={14}
-          color={item.starred ? colors.warning : "rgba(255,255,255,0.5)"}
-        />
-      </TouchableOpacity>
-      {item.type === "video" && (
-        <View style={styles.videoBadge}>
-          <Ionicons name="play" size={8} color="#fff" />
+        {/* Background: real image if captured, else colour gradient */}
+        {hasRealImage ? (
+          <Image
+            source={{ uri: item.uri }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+          />
+        ) : (
+          <LinearGradient
+            colors={gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+
+        {/* Icon overlay only for gradient tiles */}
+        {!hasRealImage && (
+          <View style={styles.mediaIconOverlay}>
+            <Ionicons
+              name={item.type === "photo" ? "camera" : "videocam"}
+              size={20}
+              color="rgba(255,255,255,0.7)"
+            />
+          </View>
+        )}
+
+        {/* Semi-transparent scrim so badges are readable over real photos */}
+        {hasRealImage && <View style={styles.imageScrm} />}
+
+        <Text style={styles.mediaTileTime}>{timeAgo(item.timestamp)}</Text>
+
+        {/* Star button */}
+        <TouchableOpacity
+          style={styles.starBtn}
+          onPress={() => toggleStarMedia(item.id)}
+        >
+          <Ionicons
+            name={item.starred ? "star" : "star-outline"}
+            size={14}
+            color={item.starred ? "#FFB800" : "rgba(255,255,255,0.6)"}
+          />
+        </TouchableOpacity>
+
+        {/* Video badge */}
+        {item.type === "video" && (
+          <View style={styles.videoBadge}>
+            <Ionicons name="play" size={8} color="#fff" />
+          </View>
+        )}
+
+        {/* Size badge */}
+        <View style={styles.sizeBadge}>
+          <Text style={styles.sizeText}>{item.size} MB</Text>
         </View>
-      )}
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
       <View
         style={[
           styles.header,
           {
             paddingTop: topPadding + 16,
             backgroundColor: colors.background,
-            borderBottomColor: colors.border,
           },
         ]}
       >
-        <Text style={[styles.title, { color: colors.foreground }]}>Gallery</Text>
-        <TouchableOpacity
-          style={[styles.cloudBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-          onPress={handleCloudSync}
-        >
-          <Ionicons name="cloud-upload-outline" size={20} color={colors.primary} />
-        </TouchableOpacity>
+        <View>
+          <Text style={[styles.title, { color: colors.foreground }]}>
+            Gallery
+          </Text>
+          <Text style={[styles.headerSub, { color: colors.mutedForeground }]}>
+            {media.filter((m) => m.type === "photo").length} photos ·{" "}
+            {media.filter((m) => m.type === "video").length} videos
+          </Text>
+        </View>
+        <View style={styles.headerBtns}>
+          {media.length > 0 && (
+            <TouchableOpacity
+              style={[
+                styles.iconBtn,
+                { backgroundColor: `${colors.sos}15`, borderColor: `${colors.sos}30` },
+              ]}
+              onPress={handleClearAll}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.sos} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[
+              styles.iconBtn,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+            onPress={handleCloudSync}
+          >
+            <Ionicons
+              name="cloud-upload-outline"
+              size={18}
+              color={colors.primary}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
+      {/* Filter tabs */}
       <View style={[styles.tabs, { borderBottomColor: colors.border }]}>
         {TABS.map((tab) => (
           <TouchableOpacity
@@ -133,7 +253,9 @@ export default function GalleryScreen() {
             onPress={() => setActiveTab(tab.id)}
             style={[
               styles.tab,
-              activeTab === tab.id && { backgroundColor: colors.primary },
+              activeTab === tab.id && {
+                backgroundColor: colors.primary,
+              },
             ]}
             activeOpacity={0.8}
           >
@@ -147,7 +269,10 @@ export default function GalleryScreen() {
             <Text
               style={[
                 styles.tabText,
-                { color: activeTab === tab.id ? "#fff" : colors.mutedForeground },
+                {
+                  color:
+                    activeTab === tab.id ? "#fff" : colors.mutedForeground,
+                },
               ]}
             >
               {tab.label}
@@ -156,6 +281,7 @@ export default function GalleryScreen() {
         ))}
       </View>
 
+      {/* Grid */}
       {filtered.length === 0 ? (
         <View style={styles.empty}>
           <View
@@ -164,10 +290,18 @@ export default function GalleryScreen() {
               { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            <Ionicons name="camera-outline" size={40} color={colors.mutedForeground} />
+            <Ionicons
+              name="camera-outline"
+              size={40}
+              color={colors.mutedForeground}
+            />
           </View>
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>No media yet</Text>
-          <Text style={[styles.emptySubtitle, { color: colors.mutedForeground }]}>
+          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
+            No media yet
+          </Text>
+          <Text
+            style={[styles.emptySubtitle, { color: colors.mutedForeground }]}
+          >
             Use the camera to capture photos and videos.
           </Text>
         </View>
@@ -178,15 +312,23 @@ export default function GalleryScreen() {
           keyExtractor={(item) => item.id}
           numColumns={3}
           columnWrapperStyle={styles.row}
-          contentContainerStyle={[styles.grid, { paddingBottom: bottomPadding + 130 }]}
+          contentContainerStyle={[
+            styles.grid,
+            { paddingBottom: bottomPadding + 160 },
+          ]}
           showsVerticalScrollIndicator={false}
         />
       )}
 
+      {/* Storage bar */}
       <View
         style={[
           styles.storageBar,
-          { backgroundColor: colors.card, borderColor: colors.border, marginBottom: bottomPadding + 90 },
+          {
+            backgroundColor: colors.card,
+            borderColor: colors.border,
+            marginBottom: bottomPadding + 90,
+          },
         ]}
       >
         <View style={styles.storageHeader}>
@@ -195,53 +337,101 @@ export default function GalleryScreen() {
             {media.filter((m) => m.type === "video").length} VIDEOS
           </Text>
           <Text style={[styles.storageUsed, { color: colors.primary }]}>
-            {device.storageUsed} GB used
+            {device.storageUsed.toFixed(1)} GB used
           </Text>
         </View>
-        <BatteryIndicator
-          level={storagePercent}
-          width={undefined}
-          height={4}
-        />
+        <BatteryIndicator level={storagePercent} width={undefined} height={4} />
         <Text style={[styles.storageDetail, { color: colors.mutedForeground }]}>
-          {device.storageUsed} GB of {device.storageTotal} GB used
+          {device.storageUsed} GB of {device.storageTotal} GB used ·{" "}
+          {(device.storageTotal - device.storageUsed).toFixed(1)} GB free
         </Text>
       </View>
 
       {/* Media Preview Modal */}
-      <Modal visible={!!selectedItem} transparent animationType="fade" onRequestClose={() => setSelectedItem(null)}>
+      <Modal
+        visible={!!selectedItem}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedItem(null)}
+      >
         <View style={styles.previewOverlay}>
-          <View style={[styles.previewCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.previewCard,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}
+          >
             <View style={styles.previewHeader}>
               <Text style={[styles.previewTitle, { color: colors.foreground }]}>
-                {selectedItem?.type === "photo" ? "Photo" : "Video"}
+                {selectedItem?.type === "photo" ? "📷 Photo" : "🎥 Video"}
               </Text>
               <TouchableOpacity onPress={() => setSelectedItem(null)}>
                 <Ionicons name="close" size={24} color={colors.foreground} />
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.previewMedia, { backgroundColor: colors.muted }]}>
-              <Ionicons
-                name={selectedItem?.type === "photo" ? "camera" : "videocam"}
-                size={64}
-                color={colors.mutedForeground}
-              />
-              <Text style={[styles.previewMediaLabel, { color: colors.mutedForeground }]}>
-                {selectedItem?.type === "photo" ? "Photo captured from pendant" : "Video recorded from pendant"}
-              </Text>
-            </View>
+            {selectedItem && (
+              selectedItem.uri ? (
+                // Real captured photo
+                <Image
+                  source={{ uri: selectedItem.uri }}
+                  style={styles.previewMedia}
+                  resizeMode="cover"
+                />
+              ) : (
+                // Placeholder gradient for seed / demo data
+                <LinearGradient
+                  colors={getGradient(selectedItem.id)}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.previewMedia}
+                >
+                  <View style={styles.previewMediaIcon}>
+                    <Ionicons
+                      name={
+                        selectedItem?.type === "photo" ? "camera" : "videocam"
+                      }
+                      size={52}
+                      color="rgba(255,255,255,0.8)"
+                    />
+                    <Text style={styles.previewMediaLabel}>
+                      {selectedItem?.type === "photo"
+                        ? "Photo captured from pendant"
+                        : "Video recorded from pendant"}
+                    </Text>
+                  </View>
+                </LinearGradient>
+              )
+            )}
 
             <View style={styles.previewMeta}>
               <View style={styles.previewMetaRow}>
-                <Ionicons name="time-outline" size={14} color={colors.mutedForeground} />
-                <Text style={[styles.previewMetaText, { color: colors.mutedForeground }]}>
-                  {selectedItem ? formatTimestamp(selectedItem.timestamp) : ""}
+                <Ionicons
+                  name="time-outline"
+                  size={14}
+                  color={colors.mutedForeground}
+                />
+                <Text
+                  style={[
+                    styles.previewMetaText,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
+                  {selectedItem ? timeAgo(selectedItem.timestamp) : ""}
                 </Text>
               </View>
               <View style={styles.previewMetaRow}>
-                <Ionicons name="save-outline" size={14} color={colors.mutedForeground} />
-                <Text style={[styles.previewMetaText, { color: colors.mutedForeground }]}>
+                <Ionicons
+                  name="save-outline"
+                  size={14}
+                  color={colors.mutedForeground}
+                />
+                <Text
+                  style={[
+                    styles.previewMetaText,
+                    { color: colors.mutedForeground },
+                  ]}
+                >
                   {selectedItem?.size} MB
                 </Text>
               </View>
@@ -249,10 +439,18 @@ export default function GalleryScreen() {
 
             <View style={styles.previewActions}>
               <TouchableOpacity
-                style={[styles.previewActionBtn, { backgroundColor: `${colors.primary}20`, borderColor: `${colors.primary}40` }]}
+                style={[
+                  styles.previewActionBtn,
+                  {
+                    backgroundColor: `${colors.primary}20`,
+                    borderColor: `${colors.primary}40`,
+                  },
+                ]}
                 onPress={() => {
                   if (selectedItem) toggleStarMedia(selectedItem.id);
-                  setSelectedItem(prev => prev ? { ...prev, starred: !prev.starred } : null);
+                  setSelectedItem((prev) =>
+                    prev ? { ...prev, starred: !prev.starred } : null
+                  );
                 }}
               >
                 <Ionicons
@@ -260,16 +458,52 @@ export default function GalleryScreen() {
                   size={18}
                   color={selectedItem?.starred ? colors.warning : colors.primary}
                 />
-                <Text style={[styles.previewActionText, { color: colors.primary }]}>
+                <Text
+                  style={[styles.previewActionText, { color: colors.primary }]}
+                >
                   {selectedItem?.starred ? "Unstar" : "Star"}
                 </Text>
               </TouchableOpacity>
+
               <TouchableOpacity
-                style={[styles.previewActionBtn, { backgroundColor: `${colors.success}20`, borderColor: `${colors.success}40` }]}
-                onPress={() => Alert.alert("Share", "Sharing is not available in this demo.")}
+                style={[
+                  styles.previewActionBtn,
+                  {
+                    backgroundColor: `${colors.success}20`,
+                    borderColor: `${colors.success}40`,
+                  },
+                ]}
+                onPress={() =>
+                  Alert.alert("Share", "Sharing is not available in this demo.")
+                }
               >
                 <Ionicons name="share-outline" size={18} color={colors.success} />
-                <Text style={[styles.previewActionText, { color: colors.success }]}>Share</Text>
+                <Text
+                  style={[
+                    styles.previewActionText,
+                    { color: colors.success },
+                  ]}
+                >
+                  Share
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.previewActionBtn,
+                  {
+                    backgroundColor: `${colors.sos}15`,
+                    borderColor: `${colors.sos}30`,
+                  },
+                ]}
+                onPress={() => selectedItem && handleDeleteItem(selectedItem)}
+              >
+                <Ionicons name="trash-outline" size={18} color={colors.sos} />
+                <Text
+                  style={[styles.previewActionText, { color: colors.sos }]}
+                >
+                  Delete
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -287,10 +521,11 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 16,
     paddingBottom: 12,
-    borderBottomWidth: 0,
   },
   title: { fontSize: 28, fontWeight: "800" },
-  cloudBtn: {
+  headerSub: { fontSize: 12, marginTop: 2 },
+  headerBtns: { flexDirection: "row", gap: 8 },
+  iconBtn: {
     width: 38,
     height: 38,
     borderRadius: 12,
@@ -333,18 +568,26 @@ const styles = StyleSheet.create({
   grid: { padding: 16, gap: 4 },
   row: { gap: 4, marginBottom: 4 },
   mediaItem: { borderRadius: 10, overflow: "hidden" },
-  mediaPlaceholder: {
+  mediaIconOverlay: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
   },
-  mediaTimestamp: { fontSize: 8, textAlign: "center", paddingHorizontal: 4 },
-  starBtn: {
+  imageScrm: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.18)",
+  },
+  mediaTileTime: {
     position: "absolute",
-    top: 6,
-    right: 6,
+    bottom: 22,
+    left: 0,
+    right: 0,
+    textAlign: "center",
+    fontSize: 8,
+    color: "rgba(255,255,255,0.7)",
+    fontWeight: "600",
   },
+  starBtn: { position: "absolute", top: 6, right: 6 },
   videoBadge: {
     position: "absolute",
     bottom: 6,
@@ -356,6 +599,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  sizeBadge: {
+    position: "absolute",
+    bottom: 6,
+    right: 6,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  sizeText: { fontSize: 7, color: "rgba(255,255,255,0.8)", fontWeight: "700" },
   storageBar: {
     position: "absolute",
     bottom: 0,
@@ -374,9 +627,11 @@ const styles = StyleSheet.create({
   storageCount: { fontSize: 11, fontWeight: "600", letterSpacing: 0.5 },
   storageUsed: { fontSize: 11, fontWeight: "700" },
   storageDetail: { fontSize: 11 },
+
+  // Modal
   previewOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.85)",
+    backgroundColor: "rgba(0,0,0,0.88)",
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
@@ -397,24 +652,32 @@ const styles = StyleSheet.create({
   previewMedia: {
     height: 200,
     borderRadius: 14,
+    overflow: "hidden",
+  },
+  previewMediaIcon: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
   },
-  previewMediaLabel: { fontSize: 13 },
-  previewMeta: { gap: 8 },
-  previewMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  previewMediaLabel: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.8)",
+    textAlign: "center",
+  },
+  previewMeta: { flexDirection: "row", gap: 20 },
+  previewMetaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   previewMetaText: { fontSize: 13 },
-  previewActions: { flexDirection: "row", gap: 12 },
+  previewActions: { flexDirection: "row", gap: 8 },
   previewActionBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 6,
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
   },
-  previewActionText: { fontSize: 14, fontWeight: "600" },
+  previewActionText: { fontSize: 13, fontWeight: "600" },
 });
